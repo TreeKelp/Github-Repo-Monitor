@@ -33,7 +33,13 @@ def main():
         with open(STATE_FILE) as f:
             seen = set(json.load(f))
     except FileNotFoundError:
-        seen = set()
+        seen = {repo["id"] for repo in repos if not repo["private"]}
+
+        with open(STATE_FILE, "w") as f:
+            json.dump(list(seen), f)
+
+        print("Initial repository list saved. No notifications sent.")
+        return
 
     new_repos = [
         repo for repo in repos
@@ -58,7 +64,3 @@ def main():
 
     with open(STATE_FILE, "w") as f:
         json.dump(list(seen), f)
-
-
-if __name__ == "__main__":
-    main()  
