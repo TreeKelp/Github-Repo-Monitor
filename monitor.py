@@ -10,6 +10,7 @@ STATE_FILE = "seen_repos.json"
 DISCORD_USER_ID = "1009365611740147802"
 
 webhook = os.environ["DISCORD_WEBHOOK"]
+github_token = os.environ["GITHUB_TOKEN"]
 
 
 def get_repos():
@@ -30,10 +31,11 @@ def get_repos():
             },
             headers={
                 "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {github_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=15,
         )
-
         response.raise_for_status()
 
         page_repos = response.json()
