@@ -36,6 +36,7 @@ def get_repos():
             },
             timeout=15,
         )
+
         response.raise_for_status()
 
         page_repos = response.json()
@@ -62,55 +63,110 @@ def parse_github_time(value):
     )
 
 
+def save_state(timestamp):
+    with open(STATE_FILE, "w") as f:
+        json.dump(
+            {
+                "last_checked": timestamp.isoformat()
+            },
+            f,
+            indent=2,
+        )
+
+
 def main():
-    # Record the beginning of this check.
-    # Anything created after this timestamp will be picked up
-    # on the next run instead of being accidentally skipped.
     check_started = datetime.now(timezone.utc)
 
     repos = get_repos()
 
-    # Load previous state.
+    # Load existing state.
     try:
         with open(STATE_FILE, "r") as f:
             state = json.load(f)
 
-        last_checked = parse_github_time(state["last_checked"])
+    except (FileNotFoundError, json.JSONDecodeError):
+        state = None
 
-    except (FileNotFoundError, KeyError, ValueError):
-        # First run: initialise without sending notifications.
+    # First run / migration from the old ID-list format
+
+    if isinstance(state, list):
+        print("Old repository state detected. Migrating...")
+
+        old_ids = set(state)
+
+        old_repos = [
+            repo
+            for repo in repos
+            if repo["id"] in old_ids
+        ]
+
+        if old_repos:
+            last_checked = max(
+                parse_github_time(repo["created_at"])
+                for repo in old_repos
+            )
+
+            print(
+                f"Migrated state from {len(old_repos)} "
+                f"previously known repositories."
+            )
+
+        else:
+            newest_repo_time = max(
+                (
+                    parse_github_time(repo["created_at"])
+                    for repo in repos
+                ),
+                default=check_started,
+            )
+
+            last_checked = newest_repo_time
+
+            print(
+                "Could not match old repository IDs. "
+                "Initialising from newest repository."
+            )
+
+    elif isinstance(state, dict) and "last_checked" in state:
+        last_checked = parse_github_time(
+            state["last_checked"]
+        )
+
+    else:
+        # Completely new installation.
         newest_repo_time = max(
-            (parse_github_time(repo["created_at"]) for repo in repos),
+            (
+                parse_github_time(repo["created_at"])
+                for repo in repos
+            ),
             default=check_started,
         )
 
-        with open(STATE_FILE, "w") as f:
-            json.dump(
-                {
-                    "last_checked": newest_repo_time.isoformat()
-                },
-                f,
-                indent=2,
-            )
+        save_state(newest_repo_time)
 
-        print("Initial repository timestamp saved. No notifications sent.")
+        print(
+            "Initial repository timestamp saved. "
+            "No notifications sent."
+        )
+
         return
 
-    # Find repositories created since the previous check.
+    # Detect repositories created since the last check
+
     new_repos = [
         repo
         for repo in repos
         if parse_github_time(repo["created_at"]) > last_checked
     ]
 
-    # Oldest first, so notifications arrive in creation order.
     new_repos.sort(
         key=lambda repo: parse_github_time(repo["created_at"])
     )
 
     print(f"Found {len(new_repos)} new public repositories.")
 
-    # Notify Discord.
+    # Send Discord notifications
+
     for repo in new_repos:
         message = (
             f"<@{DISCORD_USER_ID}> 🔔 **New public repository!**\n"
@@ -126,19 +182,18 @@ def main():
 
         response.raise_for_status()
 
-        print(f"Notified Discord: {repo['full_name']}")
-
-    # Only update the timestamp after all notifications succeeded.
-    with open(STATE_FILE, "w") as f:
-        json.dump(
-            {
-                "last_checked": check_started.isoformat()
-            },
-            f,
-            indent=2,
+        print(
+            f"Notified Discord: {repo['full_name']}"
         )
+        
+    # Save state only after successful processing
 
-    print("Repository timestamp updated.")
+    save_state(check_started)
+
+    print(
+        f"Repository timestamp updated to "
+        f"{check_started.isoformat()}"
+    )
 
 
 if __name__ == "__main__":
