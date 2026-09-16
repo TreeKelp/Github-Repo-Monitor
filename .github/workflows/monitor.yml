@@ -27,6 +27,7 @@ jobs:
       - name: Monitor GitHub user
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python monitor.py
 
       - name: Save repository state
